@@ -6,6 +6,7 @@ import sys
 import http.client
 
 content = None
+origin = None
 
 
 def get_cmd_args():
@@ -31,7 +32,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         if content is None:
             # Fetch content
-            client = http.client.HTTPConnection('3.88.208.124')
+            client = http.client.HTTPConnection(origin)
             client.request('GET', '/index.html')
             response = client.getresponse()
             if response.status == 200:
@@ -49,7 +50,10 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    global origin
     port, origin = get_cmd_args()
+    if origin.startswith('http://'):
+        origin = origin.lstrip('http://')
     server = HTTPServer(('', port), RequestHandler)
     server.serve_forever()
 
