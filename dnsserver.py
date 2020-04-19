@@ -56,6 +56,7 @@ def get_domain_name(data):
     domain_name = ''
     index = 0
     for byte in data:
+        index += 1
         if byte == 0:
             break
         if l == 0:
@@ -64,8 +65,10 @@ def get_domain_name(data):
             continue
         domain_name += chr(byte)
         l -= 1
-        index += 1
-    return domain_name.lstrip('.'), index+1
+    question = data[:index + 4]
+    qtype = data[index: index + 2]
+    qclass = data[index + 2: index + 4]
+    return domain_name.lstrip('.'), qtype, qclass, question
 
 
 def get_response(data, name):
@@ -78,7 +81,7 @@ def get_response(data, name):
     # QDCOUNT - Question count; 16 bits
     qdcount = data[4:6]
     # ANCOUNT - Answer count; 16 bits
-    # TODO: Handle mu;tip[e responses
+    # TODO: Handle mutip[e responses
     ancount = get_as_bytes(1, 2)
     # NSCOUNT - Number of name server resource records; 16 bits
     nscount = get_as_bytes(0, 2)
@@ -89,29 +92,34 @@ def get_response(data, name):
         get_second_16_bits(data) + qdcount + ancount + nscount + arcount
 
     # QUESTION
-    domain_name, qname_end_index = get_domain_name(data[12:])
-    # qtype_index = 12 + qname_end_index
-    # TODO: Implement check for correct QTYPE only A supported
-    # qtype = data[qtype_index: qtype_index+2]
-    # qclass = data[qtype_index + 2: qtype_index + 4]
-    question = data[12: 12 + qname_end_index + 8]
-    if domain_name != name:
-        # TODO: Handle missing records
-        print(f'No DNS Record found for {domain_name}')
-        return header + question
-
+    domain_name, qtype, qclass, question = get_domain_name(data[12:])
     # ANSWER
-    name = b'\xc0\x0c'
+    aname = b'\xc0\x0c'
     typ = b'\x00\x01'
     clas = b'\x00\x01'
     ttl = get_as_bytes(400, 4)
     rdlen = get_as_bytes(4, 2)
     ip = '129.10.117.187'
     rdata = b''
+
+    answer = aname + typ + clas + ttl + rdlen + rdata
+
+    if qtype != b'\x00\x01':
+        print(f'QTYPE of {qtype} not supported')
+        return header + question + answer
+    if qclass != b'\x00\x01':
+        print(f'QCLASS of {qclass} not supported')
+        return header + question + answer
+
+    if domain_name != name:
+        print(
+            f'No DNS Record found for {domain_name}. {name} is the only record supported.')
+        return header + question + answer
+
     for byte in ip.split('.'):
         rdata += bytes([int(byte)])
 
-    answer = name + typ + clas + ttl + rdlen + rdata
+    answer = aname + typ + clas + ttl + rdlen + rdata
     return header + question + answer
 
 
