@@ -1,0 +1,114 @@
+# Running Instructions
+
+Running `make` inside the directory will build executables named `dnsserver` 
+and`httpserver` which can then be run as follows:
+
+`
+./dnsserver -p port -n name
+./httpserver -p port -o origin
+`
+
+where `port` is the port the dns server should bind to and `name` is the domain
+it should resolve; `origin` is the address to the origin server from which the 
+`httpserver` should get the data.
+
+# Briefly describe the design decisions you are making in your DSN server and 
+HTTP server.
+
+## DNS Server
+
+The DNS server for the scope of the project is very simple; in that it only 
+resolves one domain and returns a fixed IP. The server is written in Python 3 
+and runs on the specified port provided.
+
+The DNS server expects to resolve only the domain provided to it via the `name`
+parameter. Apart from the above, the server responds with an empty answer for 
+domains that it cannot resolve. Moreover, it only supports A type questions of 
+class IN.
+
+## HTTP Server
+
+The HTTP server is written in python3 as well. 
+
+It only supports queries for `/test.html` and for all other queries it returns 
+a 404 not found. The caching strategy for the `httpserver` is quite 
+straightforward in that it caches the file in its first request and every 
+request henceforth is responded with the cached file.
+
+# How would you change your DNS server to dynamically return an IP, instead of 
+a hard coded IP?
+
+I will have another "measurement" server running along with the DNS server
+locally; the DNS server will send it the IP from the request, the measurement 
+server will respond with an IP that it determines to be the closest to the 
+client. Since the measurement server will be running on the same host as the 
+DNS server, latency between the DNS and the measurement server will be 
+negligible. Ideally, the resolved response should have more than one IP; but 
+towards the scope of the project it is safe to assume that the closest server 
+will always be available. 
+
+# Explain how you would implement the mapping of incoming client requests to 
+CDN servers, if you had several servers to pick from. Notice the CDN servers 
+are geographically distributed, and so are clients. Be specific about what 
+kind of measurement system you would implement, where exactly the data would be
+collected, and how you would then decide which server is the best option for a 
+particular client. 
+
+As mentioned in the previous answer, there will be a measurement server running
+on the same host as the DNS and HTTP server. The measurement server is 
+basically a peer-to-peer distributed system (shared state); it knows of the 
+existence and locations of the other httpservers and measurement servers. It 
+will also split the other CDN servers into zones based on their geolocation.
+
+The measurement server will perform a geolocation lookup on the given client IP
+(client IP here is the requesting DNS server IP; however the project mentions
+that the client and the name lookup will be on the same host) using one of the 
+many free services available online (Depending on the space available on the 
+machine, it can also maintain a GEO-IP map in a local DB). The server will then
+match the client to the closest CDN server based on its zone; if there are 
+multiple CDN servers in the same (or closest) zone to the client then a random
+server will be picked. This resolved response will have a short TTL.
+
+Subsequent requests from the same client (identified by IP) will be optimized 
+as all the CDN servers will perform active measurements by calculating
+RTTs to the client from themselves (using ping).This can be done at a certain 
+rate through the day to calculate an exponential moving average of the RTTs.
+This report can be tracked by the measurement servers to then route the same
+client to the server with the lowest RTT on subsequent requests.  
+
+Finally, if time permitted, an additional metric that can be used is server 
+load and try to load balance to servers with lesser load and comparable RTTs.
+The measurement server can analyse the traffic received by its respective 
+httpserver and share that state with its peers to determine load.
+
+# Explain how you would implement caching for your HTTP server, if we were to 
+send a range of requests to your HTTP server. What cache replacement strategy 
+would you implement if content popularity followed a Zipfian distribution. 
+How would your HTTP server respond to a request for a content that is not 
+currently in the cache?
+
+Since the content popularity follows a Zipfian distribution, an LFU cache 
+replacement strategy would be used; in that the least frequently used content
+would be evicted from cache first.
+
+An optimization to this (dependent on the amount of space available on the 
+host and pending some experimentation from my end) is to use LFRU (Least 
+Frequently Recently Used) where the cache will be split into two categories;
+privileged and unprivileged. Most frequently used content will be in the
+privileged category and content from the privileged category will be pushed to 
+the unprivileged category based on LRU; content from the unprivileged category 
+will be evicted out of the cache based on LFU. This way the most frequently and
+recently accessed content will be in the privileged category.
+
+For content not in cache, the HTTP server will first fetch the content from 
+the origin; cache it based on the strategy mentioned above and then serve the 
+content to the client. 
+
+Again, an optimization to this is to have the measurement servers also track
+the content cache on each of the servers and in case another peer is closer 
+than the origin then fetch the content from the peer instead. 
+One other strategy I wanted to explore was optimistic caching; where the 
+measurement servers can sync up periodically to share data on the cache on each
+of the hosts and ensure that all the hosts contain the most frequently accessed
+data of the entire group.
+
